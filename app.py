@@ -1,13 +1,11 @@
-# app.py  — Weather Advisory Backend
-# ----------------------------------
-# Works on: Render (free tier) or local `python app.py`
-# Requires: flask, requests  (put both in requirements.txt)
-
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
 import requests
-from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+CORS(app)  # ✅ This allows cross-origin requests (fixes GitHub Pages issue)
+
 
 # ── 1. CONFIG ─────────────────────────────────────────────
 API_KEY = "a149dd4ae36548bb809135724251507"  # ← your WeatherAPI.com key
