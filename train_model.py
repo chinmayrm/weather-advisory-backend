@@ -1,37 +1,71 @@
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
 import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, label_binarize
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    confusion_matrix, classification_report,
+    roc_auc_score
+)
 
-# Sample training data
-data = {
-    "crop": ["tomato", "rice", "wheat", "chilli", "sugarcane", "onion", "peanuts", "corn"] * 5,
-    "temperature_c": [30, 25, 22, 35, 34, 28, 31, 29] * 5,
-    "humidity_pct": [60, 70, 50, 80, 75, 65, 58, 62] * 5,
-    "advisory": [
-        "Water lightly", "Irrigate", "Reduce watering", "Spray pesticide", "Increase drainage",
-        "Monitor for rot", "Mulch needed", "Check soil pH"
-    ] * 5
-}
+# Load dataset
+df = pd.read_csv("crop_samples.csv")
 
-df = pd.DataFrame(data)
+# Encode target labels
+label_encoder = LabelEncoder()
+df["advisory"] = label_encoder.fit_transform(df["advisory"])
 
-# Encode crop and advisory
-crop_encoder = LabelEncoder()
-df["crop"] = crop_encoder.fit_transform(df["crop"])
-
-advisory_encoder = LabelEncoder()
-df["advisory"] = advisory_encoder.fit_transform(df["advisory"])
-
-# Train model
+# Split features and target
 X = df[["crop", "temperature_c", "humidity_pct"]]
 y = df["advisory"]
 
-model = RandomForestClassifier()
-model.fit(X, y)
+# Encode 'crop' using one-hot
+X = pd.get_dummies(X, columns=["crop"])
 
-# Save model and encoders
+# Dynamically safe test size (at least 1 sample per class)
+num_classes = len(np.unique(y))
+test_size = max(0.2, num_classes / len(df))
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=test_size, stratify=y, random_state=42
+)
+
+# Train model
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Save model
 joblib.dump(model, "crop_advisory_model.pkl")
-joblib.dump(crop_encoder, "crop_encoder.pkl")
-joblib.dump(advisory_encoder, "advisory_encoder.pkl")
-print("✅ Model and encoders saved.")
+print("✅ Model trained and saved.")
+
+# Evaluation
+y_pred = model.predict(X_test)
+print("\n📊 Classification Report:")
+print(classification_report(y_test, y_pred, target_names=label_encoder.classes_))
+
+# Confusion matrix heatmap
+cm = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(8,6))
+sns.heatmap(cm, annot=True, fmt='d', cmap="YlGnBu",
+            xticklabels=label_encoder.classes_,
+            yticklabels=label_encoder.classes_)
+plt.title("📉 Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.tight_layout()
+plt.savefig("confusion_matrix.png")
+plt.close()
+
+# ROC AUC score (only if enough class variety in test set)
+try:
+    y_test_bin = label_binarize(y_test, classes=np.arange(num_classes))
+    y_score = model.predict_proba(X_test)
+
+    roc_auc = roc_auc_score(y_test_bin, y_score, average="macro", multi_class="ovr")
+    print(f"\n🎯 ROC AUC Score (OvR): {roc_auc:.2f}")
+except ValueError as e:
+    print(f"⚠️ ROC AUC skipped: {e}")
