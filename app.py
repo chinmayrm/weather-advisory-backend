@@ -90,8 +90,13 @@ def weather():
     q = city
     city_label = city
 
+
     try:
-        url = f"https://api.weatherapi.com/v1/current.json?key={API_KEY}&q={q}&aqi=no"
+        # Use the public API if deployed, or local API if running locally
+        if os.environ.get("FLASK_ENV") == "development" or os.environ.get("LOCAL_TEST") == "1":
+            url = f"http://127.0.0.1:5000/mock_weather?city={q}"
+        else:
+            url = f"https://api.weatherapi.com/v1/current.json?key={API_KEY}&q={q}&aqi=no"
         data = requests.get(url, timeout=10).json()
     except Exception as e:
         return jsonify({"error": str(e)}), 500
