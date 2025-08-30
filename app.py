@@ -30,7 +30,12 @@ except Exception as e:
 
 
 # ── KNN-based advisory retrieval ──
+
 def predict_detailed_advisory_knn(crop, season, soil_type, temp, humidity, rainfall):
+    # Filter dataset for the selected crop only
+    df_crop = df_data[df_data['crop'].str.lower() == crop.lower()].copy()
+    if df_crop.empty:
+        return [f"No advisory found for crop: {crop}"]
     # Prepare input as DataFrame with one-hot columns
     input_dict = {
         "crop": crop,
@@ -42,16 +47,25 @@ def predict_detailed_advisory_knn(crop, season, soil_type, temp, humidity, rainf
     }
     input_df = pd.DataFrame([input_dict])
     input_df = pd.get_dummies(input_df)
-    # Ensure all columns are present
-    for col in crop_columns:
+    # Get columns for this crop subset
+    crop_cols = [col for col in crop_columns if col in df_crop.columns or col in input_df.columns]
+    for col in crop_cols:
         if col not in input_df:
             input_df[col] = 0
-    input_df = input_df[crop_columns]
-    # Find nearest neighbor
-    dist, idx = knn.kneighbors(input_df, n_neighbors=1)
-    nearest_row = df_data.iloc[idx[0][0]]
+    input_df = input_df[crop_cols]
+    # One-hot encode crop subset
+    X_crop = pd.get_dummies(df_crop[crop_cols])
+    for col in crop_cols:
+        if col not in X_crop:
+            X_crop[col] = 0
+    X_crop = X_crop[crop_cols]
+    # Fit a temporary KNN on this crop's data
+    from sklearn.neighbors import NearestNeighbors
+    knn_crop = NearestNeighbors(n_neighbors=1, metric='euclidean')
+    knn_crop.fit(X_crop)
+    dist, idx = knn_crop.kneighbors(input_df, n_neighbors=1)
+    nearest_row = df_crop.iloc[idx[0][0]]
     advisory = nearest_row["advisory_points"]
-    # Return as list (split by '|')
     points = [p.strip() for p in advisory.split('|')]
     return points
 
