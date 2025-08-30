@@ -13,7 +13,8 @@ ADVISORY_ENCODER_PATH = "advisory_encoder.pkl"
 
 # ── Flask ──────────────────────────────
 app = Flask(__name__)
-CORS(app)
+# Allow only the GitHub Pages frontend domain for CORS
+CORS(app, origins=["https://chinmayrm.github.io"]) 
 
 # ── Load model + encoders ──────────────
 try:
@@ -80,11 +81,16 @@ def weather():
                 return jsonify({"error": f"City '{city}' not found."}), 404
             lat = geo_data[0]["lat"]
             lon = geo_data[0]["lon"]
-            city_label = geo_data[0]["display_name"]
+            # Use the city name as label (first word of display_name or the input)
+            city_label = city.title()
         except Exception as e:
             return jsonify({"error": f"Geocoding error: {str(e)}"}), 500
     elif lat and lon:
-        city_label = f"({lat},{lon})"
+        # If lat/lon are provided, label as 'Your Location'
+        city_label = "Your Location"
+        # Ensure lat/lon are strings for URL
+        lat = str(lat)
+        lon = str(lon)
     else:
         return jsonify({"error": "Missing location: provide either ?city= or ?lat= and ?lon="}), 400
 
