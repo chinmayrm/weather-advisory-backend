@@ -63,12 +63,24 @@ def home():
 def weather():
     city = request.args.get("city")
     crop = request.args.get("crop", "").lower()
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
 
-    if not city:
-        return jsonify({"error": "Missing ?city="}), 400
+    if not crop:
+        return jsonify({"error": "Missing crop parameter."}), 400
+
+    # Prefer lat/lon if provided
+    if lat and lon:
+        q = f"{lat},{lon}"
+        city_label = f"({lat},{lon})"
+    elif city:
+        q = city
+        city_label = city
+    else:
+        return jsonify({"error": "Missing location: provide either ?city= or ?lat= and ?lon="}), 400
 
     try:
-        url = f"https://api.weatherapi.com/v1/current.json?key={API_KEY}&q={city}&aqi=no"
+        url = f"https://api.weatherapi.com/v1/current.json?key={API_KEY}&q={q}&aqi=no"
         data = requests.get(url, timeout=10).json()
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -83,7 +95,7 @@ def weather():
     advisory = get_ml_advisory(crop, temp, hum)
 
     return jsonify({
-        "city": city,
+        "city": city_label,
         "crop": crop,
         "temperature": temp,
         "humidity": hum,
