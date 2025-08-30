@@ -13,8 +13,7 @@ ADVISORY_ENCODER_PATH = "advisory_encoder.pkl"
 
 # ── Flask ──────────────────────────────
 app = Flask(__name__)
-# Allow all origins and all methods for CORS (debugging/fix for CORB)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app)
 
 # ── Load model + encoders ──────────────
 try:
@@ -64,107 +63,36 @@ def home():
 def weather():
     city = request.args.get("city")
     crop = request.args.get("crop", "").lower()
-    lat = request.args.get("lat")
-    lon = request.args.get("lon")
 
     if not crop:
         return jsonify({"error": "Missing crop parameter."}), 400
+    if not city:
+        return jsonify({"error": "Missing location: provide ?city="}), 400
 
-    # If city is provided, geocode to lat/lon using Nominatim
-    if city and not (lat and lon):
-        try:
-            geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
-            geo_headers = {"User-Agent": "AgriAI/1.0 (your@email.com)"}
-            geo_resp = requests.get(geo_url, headers=geo_headers, timeout=10)
-            geo_data = geo_resp.json()
-            if not geo_data:
-                return jsonify({"error": f"City '{city}' not found."}), 404
-            lat = geo_data[0]["lat"]
-            lon = geo_data[0]["lon"]
-            # Use the city name as label (first word of display_name or the input)
-            city_label = city.title()
-        except Exception as e:
-            return jsonify({"error": f"Geocoding error: {str(e)}"}), 500
-    elif lat and lon:
-        # If lat/lon are provided, label as 'Your Location'
-        city_label = "Your Location"
-        # Ensure lat/lon are strings for URL
-        lat = str(lat)
-        lon = str(lon)
-    else:
-        return jsonify({"error": "Missing location: provide either ?city= or ?lat= and ?lon="}), 400
+    q = city
+    city_label = city
 
-    # Now fetch weather from Open-Meteo
     try:
-        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&hourly=relative_humidity_2m"
-        weather_resp = requests.get(weather_url, timeout=10)
-        weather_data = weather_resp.json()
-        if "current_weather" not in weather_data:
-            return jsonify({"error": "Weather data not found for this location."}), 502
-        temp = weather_data["current_weather"]["temperature"]
-        wind = weather_data["current_weather"].get("windspeed", None)
-        # Open-Meteo does not provide humidity in current_weather, so get from hourly
-        humidity = None
-        if "hourly" in weather_data and "relative_humidity_2m" in weather_data["hourly"]:
-            # Find the closest hour to now
-            import datetime
-            now = datetime.datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-            times = weather_data["hourly"]["time"]
-            humidities = weather_data["hourly"]["relative_humidity_2m"]
-            # Find index of closest time
-            idx = 0
-            for i, t in enumerate(times):
-                tdt = datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M")
-                if tdt >= now:
-                    idx = i
-                    break
-            humidity = humidities[idx]
-        if humidity is None:
-            humidity = 50  # fallback
-        # Open-Meteo does not provide a text condition, so use weathercode
-        code = weather_data["current_weather"].get("weathercode", 0)
-        # Simple mapping for demo
-        code_map = {
-            0: "Clear",
-            1: "Mainly clear",
-            2: "Partly cloudy",
-            3: "Overcast",
-            45: "Fog",
-            48: "Depositing rime fog",
-            51: "Light drizzle",
-            53: "Drizzle",
-            55: "Dense drizzle",
-            56: "Freezing drizzle",
-            57: "Dense freezing drizzle",
-            61: "Slight rain",
-            63: "Rain",
-            65: "Heavy rain",
-            66: "Freezing rain",
-            67: "Heavy freezing rain",
-            71: "Slight snow fall",
-            73: "Snow fall",
-            75: "Heavy snow fall",
-            77: "Snow grains",
-            80: "Slight rain showers",
-            81: "Rain showers",
-            82: "Violent rain showers",
-            85: "Slight snow showers",
-            86: "Heavy snow showers",
-            95: "Thunderstorm",
-            96: "Thunderstorm with hail",
-            99: "Thunderstorm with heavy hail"
-        }
-        cond = code_map.get(code, "Unknown")
+        url = f"https://api.weatherapi.com/v1/current.json?key={API_KEY}&q={q}&aqi=no"
+        data = requests.get(url, timeout=10).json()
     except Exception as e:
-        return jsonify({"error": f"Weather error: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-    advisory = get_ml_advisory(crop, temp, humidity)
+    if "error" in data:
+        return jsonify({"error": data["error"]["message"]}), 502
+
+    cur = data["current"]
+    temp, hum = cur["temp_c"], cur["humidity"]
+    cond = cur["condition"]["text"]
+    wind = cur.get("wind_kph", None)
+
+    advisory = get_ml_advisory(crop, temp, hum)
 
     return jsonify({
         "city": city_label,
         "crop": crop,
         "temperature": temp,
-        "humidity": humidity,
+        "humidity": hum,
         "condition": cond,
         "wind": wind,
         "advisory": advisory,
