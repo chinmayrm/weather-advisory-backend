@@ -31,6 +31,7 @@ except Exception as e:
 
 # ── KNN-based advisory retrieval ──
 
+
 def predict_detailed_advisory_knn(crop, season, soil_type, temp, humidity, rainfall):
     # Filter dataset for the selected crop only
     df_crop = df_data[df_data['crop'].str.lower() == crop.lower()].copy()
@@ -47,18 +48,16 @@ def predict_detailed_advisory_knn(crop, season, soil_type, temp, humidity, rainf
     }
     input_df = pd.DataFrame([input_dict])
     input_df = pd.get_dummies(input_df)
-    # Get columns for this crop subset
-    crop_cols = [col for col in crop_columns if col in df_crop.columns or col in input_df.columns]
-    for col in crop_cols:
+    # One-hot encode the filtered crop data
+    X_crop = pd.get_dummies(df_crop)
+    # Ensure all columns are present in both input and crop data
+    for col in crop_columns:
         if col not in input_df:
             input_df[col] = 0
-    input_df = input_df[crop_cols]
-    # One-hot encode crop subset
-    X_crop = pd.get_dummies(df_crop[crop_cols])
-    for col in crop_cols:
         if col not in X_crop:
             X_crop[col] = 0
-    X_crop = X_crop[crop_cols]
+    input_df = input_df[crop_columns]
+    X_crop = X_crop[crop_columns]
     # Fit a temporary KNN on this crop's data
     from sklearn.neighbors import NearestNeighbors
     knn_crop = NearestNeighbors(n_neighbors=1, metric='euclidean')
