@@ -13,8 +13,8 @@ ADVISORY_ENCODER_PATH = "advisory_encoder.pkl"
 
 # ── Flask ──────────────────────────────
 app = Flask(__name__)
-# Allow only the GitHub Pages frontend domain for CORS
-CORS(app, origins=["https://chinmayrm.github.io"]) 
+# Allow all origins and all methods for CORS (debugging/fix for CORB)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # ── Load model + encoders ──────────────
 try:
