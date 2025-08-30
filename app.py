@@ -5,64 +5,68 @@ import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+
 # ── Config ──────────────────────────────
 API_KEY = "a149dd4ae36548bb809135724251507"
-MODEL_PATH = "crop_advisory_model.pkl"
+KNN_MODEL_PATH = "crop_advisory_knn.pkl"
 CROP_COLUMNS_PATH = "crop_columns.pkl"
-ADVISORY_ENCODER_PATH = "advisory_encoder.pkl"
+DATA_PATH = "crop_samples_cleaned.csv"
 
 # ── Flask ──────────────────────────────
 app = Flask(__name__)
 CORS(app)
 
-# ── Load model + encoders ──────────────
+
+# ── Load KNN model + data ──────────────
 try:
-    model = joblib.load(MODEL_PATH)
-    crop_columns = joblib.load(CROP_COLUMNS_PATH)  # list of one-hot columns
-    advisory_encoder = joblib.load(ADVISORY_ENCODER_PATH)
-    print("✅ Model + encoders loaded.")
+    knn = joblib.load(KNN_MODEL_PATH)
+    crop_columns = joblib.load(CROP_COLUMNS_PATH)
+    df_data = pd.read_csv(DATA_PATH)
+    print("✅ KNN model and data loaded.")
 except Exception as e:
-    model, crop_columns, advisory_encoder = None, None, None
-    print("❌ Error loading model/encoders:", e)
+    knn, crop_columns, df_data = None, None, None
+    print("❌ Error loading KNN model/data:", e)
 
-# ── AI helper ──────────────────────────
-def get_ml_advisory(crop, temp, humidity):
-    if not model or not crop_columns or not advisory_encoder:
-        return "⚠️ AI model or encoders not loaded."
 
-    try:
-        # Build input row
-        input_dict = {col: 0 for col in crop_columns}
-        input_dict["temperature_c"] = temp
-        input_dict["humidity_pct"] = humidity
 
-        crop_col = f"crop_{crop}"
-        if crop_col not in input_dict:
-            return f"⚠️ Crop '{crop}' not recognized."
-        input_dict[crop_col] = 1
-
-        # Create dataframe & align with model
-        input_df = pd.DataFrame([input_dict])
-        input_df = input_df[model.feature_names_in_]
-
-        # Predict
-        pred_encoded = model.predict(input_df)[0]
-        advisory = advisory_encoder.inverse_transform([pred_encoded])[0]
-        return advisory
-
-    except Exception as e:
-        print("ML error:", e)
-        return "⚠️ AI error."
+# ── KNN-based advisory retrieval ──
+def predict_detailed_advisory_knn(crop, season, soil_type, temp, humidity, rainfall):
+    # Prepare input as DataFrame with one-hot columns
+    input_dict = {
+        "crop": crop,
+        "season": season,
+        "soil_type": soil_type,
+        "temperature_c": temp,
+        "humidity_pct": humidity,
+        "rainfall_mm": rainfall
+    }
+    input_df = pd.DataFrame([input_dict])
+    input_df = pd.get_dummies(input_df)
+    # Ensure all columns are present
+    for col in crop_columns:
+        if col not in input_df:
+            input_df[col] = 0
+    input_df = input_df[crop_columns]
+    # Find nearest neighbor
+    dist, idx = knn.kneighbors(input_df, n_neighbors=1)
+    nearest_row = df_data.iloc[idx[0][0]]
+    advisory = nearest_row["advisory_points"]
+    # Return as list (split by '|')
+    points = [p.strip() for p in advisory.split('|')]
+    return points
 
 # ── Routes ─────────────────────────────
 @app.route("/")
 def home():
     return "✅ Agri-Weather AI backend is running."
 
+
 @app.route("/weather")
 def weather():
     city = request.args.get("city")
     crop = request.args.get("crop", "").lower()
+    season = request.args.get("season", "Kharif")
+    soil_type = request.args.get("soil_type", "alluvial")
 
     if not crop:
         return jsonify({"error": "Missing crop parameter."}), 400
@@ -85,14 +89,18 @@ def weather():
     temp, hum = cur["temp_c"], cur["humidity"]
     cond = cur["condition"]["text"]
     wind = cur.get("wind_kph", None)
+    rainfall = cur.get("precip_mm", 0)
 
-    advisory = get_ml_advisory(crop, temp, hum)
+    advisory = predict_detailed_advisory_knn(crop, season, soil_type, temp, hum, rainfall)
 
     return jsonify({
         "city": city_label,
         "crop": crop,
+        "season": season,
+        "soil_type": soil_type,
         "temperature": temp,
         "humidity": hum,
+        "rainfall": rainfall,
         "condition": cond,
         "wind": wind,
         "advisory": advisory,
